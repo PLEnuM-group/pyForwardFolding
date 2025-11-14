@@ -731,7 +731,7 @@ class PerBinPolynomial(AbstractBinnedFactor):
     ):
         super().__init__(name, binning, param_mapping)
 
-        if coefficients.shape[0] in [2, 3]:
+        if coefficients.shape[0] not in [2, 3]:
             raise ValueError(
                 "PerBinPolynomial only supports up to 2nd and 3rd order polynomials."
             )
@@ -964,4 +964,5 @@ FACTORSTR_CLASS_MAPPING = {
     "SoftCut": SoftCut,
     "SnowStormGradient": SnowStormGradient,
     "ScaledTemplate": ScaledTemplate,
+    "PerBinPolynomial": PerBinPolynomial,
 }
