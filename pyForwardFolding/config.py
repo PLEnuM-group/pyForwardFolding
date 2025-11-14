@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Union
 
 import yaml
 import os
@@ -15,9 +15,12 @@ from .model_component import ModelComponent
 from .backend import backend
 
 
-def _load_config(path: str) -> Dict:
-    with open(path, "r") as file:
-        return yaml.safe_load(file)
+def _load_config(config: Union[str, dict]) -> Dict:
+    if isinstance(config,str):
+        with open(config, "r") as file:
+            return yaml.safe_load(file)
+    elif isinstance(config,dict):
+        return config
 
 
 def _build_factors(conf: Dict) -> Dict[str, AbstractUnbinnedFactor]:
@@ -51,7 +54,7 @@ def _build_models(
     return {m.name: m for m in models}
 
 
-def analysis_from_config(path: str) -> Analysis:
+def analysis_from_config(config: Union[str, dict]) -> Analysis:
     """
     Load an analysis configuration from a YAML file.
 
@@ -61,7 +64,7 @@ def analysis_from_config(path: str) -> Analysis:
     Returns:
         Analysis: The constructed analysis object.
     """
-    conf = _load_config(path)
+    conf = _load_config(config)
     factors = _build_factors(conf)
     components = _build_components(conf, factors)
     models = _build_models(conf, components)
@@ -92,7 +95,7 @@ def analysis_from_config(path: str) -> Analysis:
     return Analysis(binned_expectations)
 
 
-def models_from_config(path: str) -> Dict[str, Dict[str, Model]]:
+def models_from_config(config: Union[str, dict]) -> Dict[str, Dict[str, Model]]:
     """
     Load models per dataset from a YAML file.
 
@@ -102,7 +105,7 @@ def models_from_config(path: str) -> Dict[str, Dict[str, Model]]:
     Returns:
         dict: model for each dataset.
     """
-    conf = _load_config(path)
+    conf = _load_config(config)
     factors = _build_factors(conf)
     components = _build_components(conf, factors)
     models = _build_models(conf, components)
@@ -157,7 +160,7 @@ def load_dataframe(path: str) -> pd.DataFrame:
             "Supported formats: CSV, Parquet, Feather, HDF5, Excel, Pickle."
         )
 
-def dataset_from_config(path: str) -> Dict[str, Dict[str, float]]:
+def dataset_from_config(config: Union[str, dict]) -> Dict[str, Dict[str, float]]:
     """
     Creates a dataset from a yaml config.
 
@@ -168,7 +171,7 @@ def dataset_from_config(path: str) -> Dict[str, Dict[str, float]]:
         dict: dataset to be used as analysis input.
     """
 
-    conf = _load_config(path)
+    conf = _load_config(config)
     dataset = {}
 
     for subconf in conf["datasets"]:
