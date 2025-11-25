@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, Union
+from typing import Dict, Union, Tuple
+
 
 import yaml
 import os
@@ -193,3 +194,47 @@ def dataset_from_config(config: Union[str, dict]) -> Dict[str, Dict[str, float]]
         dataset[subconf["name"]] = subdataset
     
     return dataset
+
+def params_from_config(config: Union[str, dict]) -> Tuple[Dict[str, float],list]:
+    """
+    Creates a dict for model_parameters and priors from a config.
+
+    Args:
+        path (str): Path to the YAML configuration file.
+
+    Returns:
+        model_parameters: dict containing model parameters extracted from the config
+        priors: list of prior objects extracted from the config
+    """
+    from .likelihood import UniformPrior, GaussianUnivariatePrior
+
+    conf = _load_config(config)
+
+    prior_bounds = {
+        k: (float(v[0]), float(v[1]))
+        for k, v in conf["prior_bounds"].items()
+    }
+    prior_seeds = conf["prior_seeds"]
+
+    if "prior_bounds_gauss" in conf and conf["prior_bounds_gauss"]:
+        prior_bounds_gauss = {
+            k: (float(v[0]), float(v[1]))
+            for k, v in conf["prior_bounds_gauss"].items()
+        }
+        prior_params_gauss = {
+            k: (float(v[0]), float(v[1]))
+            for k, v in conf["prior_params_gauss"].items()
+        }
+        prior_seeds_gauss = conf["prior_seeds_gauss"]
+        priors= [
+            UniformPrior(prior_seeds, prior_bounds),
+            GaussianUnivariatePrior(prior_params_gauss, prior_seeds_gauss, prior_bounds_gauss)
+        ]
+    else:
+        priors = [
+            UniformPrior(prior_seeds, prior_bounds)
+        ]
+
+    model_parameters = conf["model_parameters"]
+    
+    return model_parameters, priors
