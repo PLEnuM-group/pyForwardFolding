@@ -13,14 +13,17 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "jax>=0.5",
+  "jax==0.6.1",
+  "jaxlib==0.6.1",
+  "ml_dtypes==0.5.1",
+  "numpy==2.2.6",
   "pandas>=2.2",
   "pyArrow>=19",
   "pyyaml>=6.0",
   "iminuit>=2.31",
   "scikit-learn>=1.6"
-
 ]
+
 description = "Your project description here."
 dynamic = ["version"]
 license = "MIT"
