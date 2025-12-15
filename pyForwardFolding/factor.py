@@ -360,6 +360,62 @@ class PowerLawFlux(AbstractUnbinnedFactor):
             * backend.power(true_energy / self.pivot_energy, -spectral_index)
         )
 
+class FlavorRatio(AbstractUnbinnedFactor):
+    """
+    Factor that applies a power law flux model and scales each neutrino flavor
+
+    Parameters required by this factor are: `flux_norm` and `spectral_index`.
+    Variables required by this factor are: `true_energy`.
+
+    Args:
+        name (str): Identifier for the factor.
+        pivot_energy (float): Reference energy for the power law.
+        baseline_norm (float): Baseline normalization factor.
+        param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+
+        self.factor_parameters: List[str] = ["nue_ratio","nutau_ratio"]
+        self.req_vars: List[str] = ["true_type"]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "FlavorRatio":
+        param_mapping = config.get("param_mapping", None)
+        return FlavorRatio(
+            name=config["name"],
+            param_mapping=param_mapping,
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, Union[Array, float]],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+        true_type = input_values["true_type"]
+        nue_ratio = exposed_values["nue_ratio"]
+        nutau_ratio = exposed_values["nutau_ratio"]
+
+        ratios = backend.zeros(true_type.shape)
+
+
+        nue_mask = abs(true_type) == 12
+        numu_mask = abs(true_type) == 14
+        nutau_mask = abs(true_type) == 16
+
+        ratios = backend.where(nue_mask,nue_ratio,ratios)
+        ratios = backend.where(numu_mask,1.,ratios)
+        ratios = backend.where(nutau_mask,nutau_ratio,ratios)
+
+        
+        return ratios
 
 class FluxNorm(AbstractUnbinnedFactor):
     """
@@ -711,13 +767,15 @@ class SoftCut(AbstractUnbinnedFactor):
         name: str,
         cut_variable: str,
         slope: float,
+        cut_value: float,
         param_mapping: Optional[Dict[str, str]] = None,
     ):
         super().__init__(name, param_mapping)
 
         self.cut_variable = cut_variable
         self.slope = slope
-        self.factor_parameters = ["soft_cut"]
+        self.cut_value = cut_value
+        self.factor_parameters = []#["soft_cut"]
         self.req_vars = [self.cut_variable]
 
     @classmethod
@@ -727,6 +785,7 @@ class SoftCut(AbstractUnbinnedFactor):
             name=config["name"],
             cut_variable=config["cut_variable"],
             slope=config["slope"],
+            cut_value=config["cut_value"],
             param_mapping=param_mapping,
         )
 
@@ -736,10 +795,10 @@ class SoftCut(AbstractUnbinnedFactor):
         parameter_values: Dict[str, float],
     ) -> Array:
         input_values = get_required_variable_values(self, input_variables)
-        exposed_values = get_parameter_values(self, parameter_values)
+        #exposed_values = get_parameter_values(self, parameter_values)
 
         cut_var = backend.asarray(input_values[self.cut_variable])
-        cut_val = exposed_values["soft_cut"]
+        cut_val = self.cut_value#exposed_values["soft_cut"]
 
         return backend.sigmoid(self.slope * (cut_var - cut_val))
 
@@ -993,6 +1052,7 @@ class ScaledTemplate(AbstractBinnedFactor):
 
 FACTORSTR_CLASS_MAPPING = {
     "PowerLawFlux": PowerLawFlux,
+    "FlavorRatio": FlavorRatio,
     "FluxNorm": FluxNorm,
     "SnowstormGauss": SnowstormGauss,
     "DeltaGamma": DeltaGamma,

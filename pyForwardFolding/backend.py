@@ -455,6 +455,16 @@ class JAXBackend:
 
     def set_index(self, x: ArrayLike, index: Any, values: Any) -> JAXArray:
         x = jnp.asarray(x)
+
+        # --- boolean mask case (the one that currently breaks under jit) ---
+        # If index is a boolean array (NumPy or JAX), use jnp.where so we
+        # don't rely on boolean advanced indexing on traced values.
+        if isinstance(index, (jnp.ndarray)) and index.dtype == bool:
+            # Set entries where index is True to `values`, keep others as x.
+            # `values` can be a scalar or array broadcastable to x.
+            return jnp.where(index, values, x)
+
+        # --- all other cases (integer indices, slices, etc.) ---
         return x.at[index].set(values)
 
     def set_index_add(self, x: ArrayLike, index: Any, values: Any) -> JAXArray:
