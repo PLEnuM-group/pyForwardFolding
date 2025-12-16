@@ -465,12 +465,17 @@ class SegmentedPlane(AbstractUnbinnedFactor):
         norm = norms[segments]
         gamma = gammas[segments]
 
+        # check whether events are in plane or outside
+        in_plane = backend.abs(true_lat) <= self.height
 
-        return (
+        weight = (
             norm
             * self.baseline_flux
             * backend.power(true_energy / self.reference_energy, -gamma)
         )
+
+        weight = backend.where(in_plane, weight, 0.0)
+        return weight
 
 class SnowstormGauss(AbstractUnbinnedFactor):
     """
