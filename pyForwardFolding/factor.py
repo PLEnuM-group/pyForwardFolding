@@ -397,6 +397,78 @@ class FluxNorm(AbstractUnbinnedFactor):
         return backend.array(flux_norm)
 
 
+
+class SegmentedPlane(AbstractUnbinnedFactor):
+    """
+    Factor that applies a segment-wise delta gamma scaling and a flux norm to a precalculated Galactic Plane weight.
+
+    Parameters required by this factor are: `delta_gamma`.
+    Variables required by this factor are: `true_energy` and `median_energy`.
+
+    Args:
+        name (str): Identifier for the factor.
+        reference_energy (float): Reference energy for scaling.
+        param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
+    """
+
+    def __init__(
+        self,
+        name,
+        param_mapping: Optional[Dict[str, str]] = None,
+        reference_energy: float = 1e3,
+        baseline_flux: float = 1.0,
+        segment_edges: list = [0.],
+        height: float = 3.14159265359,
+    ):
+        super().__init__(name, param_mapping)
+        self.reference_energy = reference_energy
+        self.baseline_flux = baseline_flux
+        self.segment_edges = segment_edges
+        self.num_segments = len(segment_edges)
+        self.height = height
+
+        self.factor_parameters = [f"galactic_norm_{i}" for i in range(self.num_segments)]
+        self.factor_parameters += [f"galactic_gamma_{i}" for i in range(self.num_segments)]
+        self.req_vars = ["true_energy", "true_lat", "true_lon"]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "SegmentedPlane":
+        param_mapping = config.get("param_mapping", None)
+        return SegmentedPlane(
+            name=config["name"],
+            reference_energy=config["reference_energy"],
+            baseline_flux=config["baseline_flux"],
+            segment_edges=config["segment_edges"],
+            height=config["height"],
+            param_mapping=param_mapping,
+        )
+
+    def evaluate(self, input_variables, parameter_values):
+        input_values = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+
+        norms = backend.asarray([exposed_values[f"galactic_norm_{i}"] for i in range(self.num_segments)])
+        gammas = backend.asarray([exposed_values[f"galactic_gamma_{i}"] for i in range(self.num_segments)])
+
+        true_energy = input_values["true_energy"]
+        true_lat = input_values["true_lat"]
+        true_lon = input_values["true_lon"]
+
+        # Get segment number for each event
+        edges = backend.sort(backend.asarray(self.segment_edges))
+        segments = backend.searchsorted(edges, true_lon, side="right") - 1
+        segments = backend.mod(segments, edges.shape[0]).astype(int)
+        
+        norm = norms[segments]
+        gamma = gammas[segments]
+
+
+        return (
+            norm
+            * self.baseline_flux
+            * backend.power(true_energy / self.reference_energy, -gamma)
+        )
+
 class SnowstormGauss(AbstractUnbinnedFactor):
     """
     Factor that implements a Gaussian reweighting scheme for systematic uncertainty modeling.
@@ -994,6 +1066,7 @@ class ScaledTemplate(AbstractBinnedFactor):
 FACTORSTR_CLASS_MAPPING = {
     "PowerLawFlux": PowerLawFlux,
     "FluxNorm": FluxNorm,
+    "SegmentedPlane": SegmentedPlane,
     "SnowstormGauss": SnowstormGauss,
     "DeltaGamma": DeltaGamma,
     "GradientReweight": GradientReweight,
