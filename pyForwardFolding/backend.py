@@ -95,6 +95,10 @@ class Backend(Protocol):
     def set_index_add(self, x: Array, index: Any, values: Any) -> Array:
         """Add values at specified indices."""
         ...
+    
+    def sort(self, x: Array) -> Array:
+        """Sort an array""" 
+        ...
 
     def searchsorted(self, a: Array, v: Array, side: str = "left") -> Array:
         """Find indices where elements should be inserted to maintain order."""
@@ -354,6 +358,10 @@ class Backend(Protocol):
         """
         ...
 
+    def mod(self, a: ArrayLike, b: ArrayLike) -> Array:
+        """Calculate the remainder"""
+        ...
+
     def max(self, x: ArrayLike) -> Array:
         """
         Compute the maximum value of an array.
@@ -479,6 +487,9 @@ class JAXBackend:
     def reshape(self, x: ArrayLike, shape: Any) -> JAXArray:
         x = jnp.asarray(x)
         return x.reshape(shape)
+
+    def sort(self, a: ArrayLike) -> JAXArray:
+        return jnp.sort(a)
 
     def searchsorted(self, a: ArrayLike, v: ArrayLike, side: str = "left") -> JAXArray:
         a = jnp.asarray(a)
@@ -717,6 +728,9 @@ class JAXBackend:
         """
         x = jnp.asarray(x)
         return jnp.mean(x)
+
+    def mod(self, a: ArrayLike, b: ArrayLike) -> JAXArray:
+        return jnp.mod(a,b)
 
     def max(self, x: ArrayLike) -> JAXArray:
         """
