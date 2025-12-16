@@ -402,12 +402,15 @@ class SegmentedPlane(AbstractUnbinnedFactor):
     """
     Factor that applies a segment-wise delta gamma scaling and a flux norm to a precalculated Galactic Plane weight.
 
-    Parameters required by this factor are: `delta_gamma`.
-    Variables required by this factor are: `true_energy` and `median_energy`.
+    Parameters required by this factor are: `segmented_norm_{i}` and `segmented_gamma_{i}` where i corresponds to each segment index.
+    Variables required by this factor are: `true_energy`, `true_lat` and `true_lon`.
 
     Args:
         name (str): Identifier for the factor.
         reference_energy (float): Reference energy for scaling.
+        baseline_flux (float): Overall scaling of the factor.
+        segment_edges (list): List of all segment edges.
+        height (float): Height cut around the galactic horizon.
         param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
     """
 
