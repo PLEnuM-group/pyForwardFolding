@@ -40,6 +40,10 @@ class Backend(Protocol):
         """Create an array of zeros."""
         ...
 
+    def abs(self, x: Array) -> Array:
+        """Element-wise absolute"""
+        ...
+
     def power(self, a: Any, b: Any) -> Array:
         """Element-wise power operation."""
         ...
@@ -401,6 +405,9 @@ class JAXBackend:
 
     def zeros(self, shape: Any, dtype: Any = None) -> JAXArray:
         return jnp.zeros(shape, dtype=dtype)
+
+    def abs(self, x: ArrayLike) -> JAXArray:
+        return jnp.abs(x)
 
     def power(self, a: ArrayLike, b: Any) -> JAXArray:
         return jnp.power(jnp.asarray(a), b)
