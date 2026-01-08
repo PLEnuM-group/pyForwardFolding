@@ -826,6 +826,48 @@ class VetoThreshold(AbstractUnbinnedFactor):
         # atm. weights are multiplied by passing fraction
         return reweight
 
+class FixedVeto(AbstractUnbinnedFactor):
+    """
+    Applies a fixed per-event passing fraction to the component weights.
+
+    No parameters required.
+    Variables required are the per-event passing fractions.
+    
+    Args:
+        name (str): Identifier for the factor.
+        param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
+    """
+
+    def __init__(self, 
+                 name: str, 
+                 passing_fraction: str,
+                 param_mapping: Optional[Dict[str, str]] = None):
+        super().__init__(name, param_mapping)
+
+        self.factor_parameters = []
+        self.pf_key = passing_fraction
+        self.req_vars = [self.pf_key]
+
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "FixedVeto":
+        param_mapping = config.get("param_mapping", None)
+        return FixedVeto(
+            name=config["name"],
+            passing_fraction=config["passing_fraction"],
+            param_mapping=param_mapping,
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, Union[Array, float]],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        
+        input_values = get_required_variable_values(self, input_variables)
+        pf = input_values[self.pf_key]
+
+        return backend.array(pf)
 
 class SoftCut(AbstractUnbinnedFactor):
     """
@@ -1140,6 +1182,7 @@ FACTORSTR_CLASS_MAPPING = {
     "GradientReweight": GradientReweight,
     "ModelInterpolator": ModelInterpolator,
     "VetoThreshold": VetoThreshold,
+    "FixedVeto": FixedVeto,
     "SoftCut": SoftCut,
     "SnowStormGradient": SnowStormGradient,
     "ScaledTemplate": ScaledTemplate,
