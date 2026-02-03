@@ -609,7 +609,7 @@ class DeltaGamma(AbstractUnbinnedFactor):
         self.reference_energy = reference_energy
 
         self.factor_parameters = ["delta_gamma"]
-        self.req_vars = ["true_energy", "median_energy"]
+        self.req_vars = ["true_energy"]
 
     @classmethod
     def construct_from(cls, config: Dict[str, Any]) -> "DeltaGamma":
