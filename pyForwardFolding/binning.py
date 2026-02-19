@@ -160,10 +160,16 @@ class RelaxedBinning(AbstractBinning):
         lower_edges = self.bin_edges[0][:-1]
         upper_edges = self.bin_edges[0][1:]
 
-        for i, (le, ue) in enumerate(zip(lower_edges, upper_edges)):
-            output = backend.set_index(
-                output, i, backend.sum(self._tanh_bin_kernel(data, le, ue) * weights)
-            )
+        if weights is not None:
+            for i, (le, ue) in enumerate(zip(lower_edges, upper_edges)):
+                output = backend.set_index(
+                    output, i, backend.sum(self._tanh_bin_kernel(data, le, ue) * weights)
+                )
+        else:
+            for i, (le, ue) in enumerate(zip(lower_edges, upper_edges)):
+                output = backend.set_index(
+                    output, i, backend.sum(self._tanh_bin_kernel(data, le, ue))
+                )
 
         output /= self._tanh_bin_kernel_norm(self.bin_width)
         return output
@@ -265,7 +271,7 @@ class RectangularBinning(AbstractBinning):
             for bv in binning_variables
         )
 
-        if(weights!=None):
+        if weights is not None:
             weights_array = (
                 backend.asarray(weights) if not isinstance(weights, Array) else weights
             )
