@@ -75,6 +75,34 @@ class Analysis:
             output_ssq_dict[comp_name] = hist_ssq
 
         return output_dict, output_ssq_dict
+    
+    def evaluate_data(
+        self,
+        datasets: Dict[str, Dict[str, Union[Array, float]]],
+    ) -> Tuple[Dict[str, Array], Dict[str, Array]]:
+        """
+        Evaluate all expectations in the analysis.
+
+        Args:
+            datasets (Dict[str, Dict[str, Union[Array, float]]]): A dictionary mapping component names to their input variables.
+
+        Returns:
+            Tuple[Dict[str, Array], Dict[str, Array]]: A tuple containing:
+                - A dictionary mapping component names to their evaluation results (histograms).
+        """
+        output_dict = {}
+
+        for comp_name, comp in self.expectations.items():
+            # Evaluate the component
+            hist = comp.evaluate_data(
+                datasets
+            )
+
+            # Store results
+            output_dict[comp_name] = hist
+
+
+        return output_dict
 
     def fisher_information(
         self,

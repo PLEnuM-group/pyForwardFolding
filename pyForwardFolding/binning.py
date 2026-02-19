@@ -264,24 +264,34 @@ class RectangularBinning(AbstractBinning):
             backend.asarray(bv) if not isinstance(bv, Array) else bv
             for bv in binning_variables
         )
-        weights_array = (
-            backend.asarray(weights) if not isinstance(weights, Array) else weights
-        )
 
-        self.calculate_bin_indices(ds_key, converted_binning_variables)
+        if(weights!=None):
+            weights_array = (
+                backend.asarray(weights) if not isinstance(weights, Array) else weights
+            )
+            self.calculate_bin_indices(ds_key, converted_binning_variables)
+            # Set weight of masked samples to 0
+            weights_masked = backend.set_index(weights_array, self.mask_dict[ds_key], 0)
+
+        else:
+            self.calculate_bin_indices(ds_key, converted_binning_variables)
+            weights_masked=None
+
+        
 
         indices_flat = backend.ravel_multi_index(
             tuple(self.bin_indices_dict[ds_key]), self.hist_dims
         )
 
-        # Set weight of masked samples to 0
-        weights_masked = backend.set_index(weights_array, self.mask_dict[ds_key], 0)
+        
 
         output = backend.bincount(
             indices_flat, weights=weights_masked, length=self.nbins
         )
 
         return output.reshape(self.hist_dims)
+    
+
 
 
 class RectangularBinning2DTo3D(RectangularBinning):

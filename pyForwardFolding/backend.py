@@ -498,7 +498,7 @@ class JAXBackend:
 
     def bincount(self, x: ArrayLike, length: int, weights: ArrayLike= None) -> JAXArray:
         x = jnp.asarray(x)
-        weights = jnp.asarray(weights)
+        weights = None if weights is None else jnp.asarray(weights)
         return jnp.bincount(x, weights=weights, length=length)
 
     def reshape(self, x: ArrayLike, shape: Any) -> JAXArray:

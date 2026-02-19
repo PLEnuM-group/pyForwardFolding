@@ -23,6 +23,7 @@ class BinnedExpectation:
         name: str,
         dskey_model_pairs: List[Tuple[str, Model]],
         binning: AbstractBinning,
+        data_key: Optional[str]=None,
         binned_factors: Optional[List[AbstractBinnedFactor]] = None,
         lifetime: float = 1.0,
     ):
@@ -30,6 +31,7 @@ class BinnedExpectation:
         self.dskey_model_pairs = dskey_model_pairs
         self.models = [model for _, model in dskey_model_pairs]
         self.binning = binning
+        self.data_key=data_key 
         self.binned_factors = binned_factors if binned_factors is not None else []
         self.lifetime = lifetime
 
@@ -146,6 +148,44 @@ class BinnedExpectation:
         hist_ssq = backend.clip(hist_ssq, 0, float("inf"))
 
         return hist, hist_ssq
+
+    def evaluate_data(
+        self,
+        datasets: Dict[str, Dict[str, Union[Array, float]]],
+    ) -> Array:
+        """
+        Evaluate the observed data histogram for this expectation.
+
+        Args:
+            datasets (Dict[str, Dict[str, Union[Array, float]]]): Input datasets.
+
+        Returns:
+            Array: Histogrammed observed data.
+        """
+        if self.data_key is None:
+            raise ValueError(
+                f"No data_key configured for expectation '{self.name}'."
+            )
+        if self.data_key not in datasets:
+            raise ValueError(
+                f"Dataset '{self.data_key}' not found in provided datasets."
+            )
+
+        input_variables = datasets[self.data_key]
+        binning_variables = tuple(
+            backend.asarray(input_variables[var])
+            for var in self.binning.required_variables
+        )
+
+
+        if len(binning_variables) == 0:
+            raise ValueError(
+                f"Binning for expectation '{self.name}' has no required variables."
+            )
+        weights = None
+        hist = self.binning.build_histogram(self.data_key, weights, binning_variables)
+
+        return backend.clip(hist, 0, float("inf"))
 
     def _repr_markdown_(self) -> str:
         """
