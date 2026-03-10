@@ -663,7 +663,7 @@ class DeltaGamma(AbstractUnbinnedFactor):
     Factor that applies a delta gamma scaling.
 
     Parameters required by this factor are: `delta_gamma`.
-    Variables required by this factor are: `true_energy` and `median_energy`.
+    Variables required by this factor are: `true_energy`.
 
     Args:
         name (str): Identifier for the factor.
