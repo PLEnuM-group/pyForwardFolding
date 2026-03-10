@@ -133,14 +133,6 @@ class Model:
             ValueError: If any baseline weight is not found in the input variables.
         """
 
-        ### there occures a problem with the median energy in the dict
-        ### if it is included in the dict, it will be deleted for this function
-        med_energy=False
-        if "median_energy" in input_variables:
-            med_energy=True
-            median_energy=input_variables["median_energy"]
-            del input_variables["median_energy"]
-
         # Ensure all input variables have the same length
         input_var_lengths = [
             len(value) if isinstance(value, Array) else 1
@@ -156,12 +148,6 @@ class Model:
                 raise ValueError(
                     f"Baseline weight '{baseline_weight}' not found in input variables"
                 )
-
- 
-            # Accumulate the result into the output
-            if(med_energy):
-                input_variables["median_energy"]=median_energy
-            output[component.name] = baseline_weight_value * component.evaluate(input_variables, parameter_values)
 
         return output
 
