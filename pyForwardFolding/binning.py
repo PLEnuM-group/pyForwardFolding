@@ -280,8 +280,7 @@ class RectangularBinning(AbstractBinning):
             weights_masked = backend.set_index(weights_array, self.mask_dict[ds_key], 0)
 
         else:
-            self.calculate_bin_indices(ds_key, converted_binning_variables)
-            weights_masked=None
+            raise ValueError("weights=None is set, that would cause problems as weights can not be masked")
 
         
 

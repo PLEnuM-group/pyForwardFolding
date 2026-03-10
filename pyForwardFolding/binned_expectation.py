@@ -376,8 +376,6 @@ class BinnedData:
         ### create dumm weight array where all values are 1
         weights = backend.array([1.0] * weight_dimensions)
 
-
-        #weights = None
         hist = self.binning.build_histogram(self.data_key, weights, binning_variables)
 
         return backend.clip(hist, 0, float("inf"))
