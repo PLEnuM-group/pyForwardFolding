@@ -4,7 +4,7 @@ import numpy as np
 from jax import jacfwd, tree_util
 import jax.numpy as jnp
 from .backend import Array
-from .binned_expectation import BinnedExpectation
+from .binned_expectation import BinnedExpectation, BinnedData
 
 
 class Analysis:
@@ -93,10 +93,14 @@ class Analysis:
         output_dict = {}
 
         for comp_name, comp in self.expectations.items():
-            # Evaluate the component
-            hist = comp.evaluate_data(
-                datasets
+            # Evaluate the observed data via BinnedData (data handling moved there)
+            binned_data = BinnedData(
+                name=comp.name,
+                dskey_model_pairs=comp.dskey_model_pairs,
+                binning=comp.binning,
+                data_key=comp.data_key,
             )
+            hist = binned_data.evaluate_data(datasets)
 
             # Store results
             output_dict[comp_name] = hist
