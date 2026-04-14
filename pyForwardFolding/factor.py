@@ -750,6 +750,79 @@ class GradientReweight(AbstractUnbinnedFactor):
         return reweight / baseline
 
 
+class ClassifierGradientReweight(AbstractUnbinnedFactor):
+    """
+    Per-event reweighting using classifier-fitted polynomial coefficients
+    in log-weight space. Implements:
+
+        r_j(alpha) = exp( sum_{param,p} g_{param,p,j} * (alpha_param - alpha_nom_param)^p )
+
+    The g columns are expected to be present in the dataset, written by gradients.py
+    with the naming convention g_{param}_{order} (e.g. g_abs_1, g_qeff_2).
+
+    Parameters required by this factor are the unique parameter names in `poly_features`.
+    Variables required by this factor are the g columns derived from `poly_features`.
+
+    Args:
+        name (str): Identifier for the factor.
+        poly_features (list): List of (param, order) tuples matching those used in training,
+                              e.g. [("abs", 1), ("abs", 2), ("qeff", 1), ("qeff", 2)].
+        nominal_values (dict): Nominal systematic values, e.g. {"abs": 1.0, "qeff": 1.0}.
+        gradient_col_template (str): Format string for gradient column names.
+                                     Defaults to "g_{param}_{order}".
+        param_mapping (dict, optional): Parameter name remapping passed to base class.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        poly_features: List[Tuple[str, int]],
+        nominal_values: Dict[str, float],
+        gradient_col_template: str = "g_{param}_{order}",
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+        self.poly_features          = poly_features
+        self.nominal_values         = nominal_values
+        self.gradient_col_template  = gradient_col_template
+
+        # One input variable per polynomial term (the g columns in the dataset)
+        self.req_vars = [
+            gradient_col_template.format(param=param, order=order)
+            for param, order in poly_features
+        ]
+        # One free parameter per unique systematic (duplicates collapsed)
+        self.factor_parameters = list(dict.fromkeys(param for param, _ in poly_features))
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "ClassifierGradientReweight":
+        return cls(
+            name                   = config["name"],
+            poly_features          = [tuple(pf) for pf in config["poly_features"]],
+            nominal_values         = config["nominal_values"],
+            gradient_col_template  = config.get("gradient_col_template", "g_{param}_{order}"),
+            param_mapping          = config.get("param_mapping", None),
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, float | Array],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values   = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+
+        log_r = backend.zeros(
+            input_values[self.req_vars[0]].shape
+        )
+        for param, order in self.poly_features:
+            col         = self.gradient_col_template.format(param=param, order=order)
+            g_col       = input_values[col]
+            delta_alpha = exposed_values[param] - self.nominal_values[param]
+            log_r       = log_r + (delta_alpha ** order) * g_col
+
+        return backend.exp(log_r)
+
 class VetoThreshold(AbstractUnbinnedFactor):
     """
     Changes the atm. passing fraction according to a second-order expansion of
@@ -1180,6 +1253,7 @@ FACTORSTR_CLASS_MAPPING = {
     "SnowstormGauss": SnowstormGauss,
     "DeltaGamma": DeltaGamma,
     "GradientReweight": GradientReweight,
+    "ClassifierGradientReweight": ClassifierGradientReweight,
     "ModelInterpolator": ModelInterpolator,
     "VetoThreshold": VetoThreshold,
     "FixedVeto": FixedVeto,
