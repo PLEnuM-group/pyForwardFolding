@@ -360,6 +360,76 @@ class PowerLawFlux(AbstractUnbinnedFactor):
             * backend.power(true_energy / self.pivot_energy, -spectral_index)
         )
 
+class BrokenPowerLawFlux(AbstractUnbinnedFactor):
+    """
+    Factor that applies a broken power law flux model.
+
+    Parameters required by this factor are: `flux_norm`, `spectral_index_1`, `spectral_index_2` and `logEbreak`.
+    Variables required by this factor are: `true_energy`.
+
+    Args:
+        name (str): Identifier for the factor.
+        pivot_energy (float): Reference energy for the power law.
+        baseline_norm (float): Baseline normalization factor.
+        param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        pivot_energy: float,
+        baseline_norm: float,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+
+        self.pivot_energy = pivot_energy
+        self.baseline_norm = baseline_norm
+
+        self.factor_parameters: List[str] = ["flux_norm", "spectral_index_1", "spectral_index_2", "logEbreak"]
+        self.req_vars: List[str] = ["true_energy"]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "BrokenPowerLawFlux":
+        param_mapping = config.get("param_mapping", None)
+        return BrokenPowerLawFlux(
+            name=config["name"],
+            pivot_energy=config["pivot_energy"],
+            baseline_norm=config["baseline_norm"],
+            param_mapping=param_mapping,
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, Union[Array, float]],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+        true_energy = input_values["true_energy"]
+        flux_norm = exposed_values["flux_norm"]
+        spectral_index_1 = exposed_values["spectral_index_1"]
+        spectral_index_2 = exposed_values["spectral_index_2"]
+        Ebreak = 10**exposed_values["logEbreak"]
+
+        flux = flux_norm
+
+        #transform norm to  give flux at pivot energy
+        flux *= backend.where(
+            self.pivot_energy < Ebreak,
+            (self.pivot_energy/Ebreak)**spectral_index_1,
+            (self.pivot_energy/Ebreak)**spectral_index_2
+                              )
+        
+        #calculate flux
+        flux *= backend.where(
+            true_energy < Ebreak,
+            (true_energy/Ebreak)**(-spectral_index_1),
+            (true_energy/Ebreak)**(-spectral_index_2),
+        )
+
+        return flux * self.baseline_norm
+
 class FlavorRatio(AbstractUnbinnedFactor):
     """
     Factor that applies a power law flux model and scales each neutrino flavor
@@ -532,6 +602,8 @@ class SegmentedPlane(AbstractUnbinnedFactor):
 
         weight = backend.where(in_plane, weight, 0.0)
         return weight
+
+
 
 class SnowstormGauss(AbstractUnbinnedFactor):
     """
@@ -1247,6 +1319,7 @@ class ScaledTemplate(AbstractBinnedFactor):
 
 FACTORSTR_CLASS_MAPPING = {
     "PowerLawFlux": PowerLawFlux,
+    "BrokenPowerLawFlux": BrokenPowerLawFlux,
     "FlavorRatio": FlavorRatio,
     "FluxNorm": FluxNorm,
     "SegmentedPlane": SegmentedPlane,
