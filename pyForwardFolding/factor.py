@@ -360,6 +360,76 @@ class PowerLawFlux(AbstractUnbinnedFactor):
             * backend.power(true_energy / self.pivot_energy, -spectral_index)
         )
 
+class BrokenPowerLawFlux(AbstractUnbinnedFactor):
+    """
+    Factor that applies a broken power law flux model.
+
+    Parameters required by this factor are: `flux_norm`, `spectral_index_1`, `spectral_index_2` and `logEbreak`.
+    Variables required by this factor are: `true_energy`.
+
+    Args:
+        name (str): Identifier for the factor.
+        pivot_energy (float): Reference energy for the power law.
+        baseline_norm (float): Baseline normalization factor.
+        param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        pivot_energy: float,
+        baseline_norm: float,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+
+        self.pivot_energy = pivot_energy
+        self.baseline_norm = baseline_norm
+
+        self.factor_parameters: List[str] = ["flux_norm", "spectral_index_1", "spectral_index_2", "logEbreak"]
+        self.req_vars: List[str] = ["true_energy"]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "BrokenPowerLawFlux":
+        param_mapping = config.get("param_mapping", None)
+        return BrokenPowerLawFlux(
+            name=config["name"],
+            pivot_energy=config["pivot_energy"],
+            baseline_norm=config["baseline_norm"],
+            param_mapping=param_mapping,
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, Union[Array, float]],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+        true_energy = input_values["true_energy"]
+        flux_norm = exposed_values["flux_norm"]
+        spectral_index_1 = exposed_values["spectral_index_1"]
+        spectral_index_2 = exposed_values["spectral_index_2"]
+        Ebreak = 10**exposed_values["logEbreak"]
+
+        flux = flux_norm
+
+        #transform norm to  give flux at pivot energy
+        flux *= backend.where(
+            self.pivot_energy < Ebreak,
+            (self.pivot_energy/Ebreak)**spectral_index_1,
+            (self.pivot_energy/Ebreak)**spectral_index_2
+                              )
+        
+        #calculate flux
+        flux *= backend.where(
+            true_energy < Ebreak,
+            (true_energy/Ebreak)**(-spectral_index_1),
+            (true_energy/Ebreak)**(-spectral_index_2),
+        )
+
+        return flux * self.baseline_norm
+
 class FlavorRatio(AbstractUnbinnedFactor):
     """
     Factor that applies a power law flux model and scales each neutrino flavor
@@ -533,6 +603,8 @@ class SegmentedPlane(AbstractUnbinnedFactor):
         weight = backend.where(in_plane, weight, 0.0)
         return weight
 
+
+
 class SnowstormGauss(AbstractUnbinnedFactor):
     """
     Factor that implements a Gaussian reweighting scheme for systematic uncertainty modeling.
@@ -609,7 +681,7 @@ class DeltaGamma(AbstractUnbinnedFactor):
         self.reference_energy = reference_energy
 
         self.factor_parameters = ["delta_gamma"]
-        self.req_vars = ["true_energy", "median_energy"]
+        self.req_vars = ["true_energy"]
 
     @classmethod
     def construct_from(cls, config: Dict[str, Any]) -> "DeltaGamma":
@@ -749,6 +821,79 @@ class GradientReweight(AbstractUnbinnedFactor):
             reweight += par_value * par_gradient
         return reweight / baseline
 
+
+class ClassifierGradientReweight(AbstractUnbinnedFactor):
+    """
+    Per-event reweighting using classifier-fitted polynomial coefficients
+    in log-weight space. Implements:
+
+        r_j(alpha) = exp( sum_{param,p} g_{param,p,j} * (alpha_param - alpha_nom_param)^p )
+
+    The g columns are expected to be present in the dataset, written by gradients.py
+    with the naming convention g_{param}_{order} (e.g. g_abs_1, g_qeff_2).
+
+    Parameters required by this factor are the unique parameter names in `poly_features`.
+    Variables required by this factor are the g columns derived from `poly_features`.
+
+    Args:
+        name (str): Identifier for the factor.
+        poly_features (list): List of (param, order) tuples matching those used in training,
+                              e.g. [("abs", 1), ("abs", 2), ("qeff", 1), ("qeff", 2)].
+        nominal_values (dict): Nominal systematic values, e.g. {"abs": 1.0, "qeff": 1.0}.
+        gradient_col_template (str): Format string for gradient column names.
+                                     Defaults to "g_{param}_{order}".
+        param_mapping (dict, optional): Parameter name remapping passed to base class.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        poly_features: List[Tuple[str, int]],
+        nominal_values: Dict[str, float],
+        gradient_col_template: str = "g_{param}_{order}",
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+        self.poly_features          = poly_features
+        self.nominal_values         = nominal_values
+        self.gradient_col_template  = gradient_col_template
+
+        # One input variable per polynomial term (the g columns in the dataset)
+        self.req_vars = [
+            gradient_col_template.format(param=param, order=order)
+            for param, order in poly_features
+        ]
+        # One free parameter per unique systematic (duplicates collapsed)
+        self.factor_parameters = list(dict.fromkeys(param for param, _ in poly_features))
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "ClassifierGradientReweight":
+        return cls(
+            name                   = config["name"],
+            poly_features          = [tuple(pf) for pf in config["poly_features"]],
+            nominal_values         = config["nominal_values"],
+            gradient_col_template  = config.get("gradient_col_template", "g_{param}_{order}"),
+            param_mapping          = config.get("param_mapping", None),
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, float | Array],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values   = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+
+        log_r = backend.zeros(
+            input_values[self.req_vars[0]].shape
+        )
+        for param, order in self.poly_features:
+            col         = self.gradient_col_template.format(param=param, order=order)
+            g_col       = input_values[col]
+            delta_alpha = exposed_values[param] - self.nominal_values[param]
+            log_r       = log_r + (delta_alpha ** order) * g_col
+
+        return backend.exp(log_r)
 
 class VetoThreshold(AbstractUnbinnedFactor):
     """
@@ -1174,12 +1319,14 @@ class ScaledTemplate(AbstractBinnedFactor):
 
 FACTORSTR_CLASS_MAPPING = {
     "PowerLawFlux": PowerLawFlux,
+    "BrokenPowerLawFlux": BrokenPowerLawFlux,
     "FlavorRatio": FlavorRatio,
     "FluxNorm": FluxNorm,
     "SegmentedPlane": SegmentedPlane,
     "SnowstormGauss": SnowstormGauss,
     "DeltaGamma": DeltaGamma,
     "GradientReweight": GradientReweight,
+    "ClassifierGradientReweight": ClassifierGradientReweight,
     "ModelInterpolator": ModelInterpolator,
     "VetoThreshold": VetoThreshold,
     "FixedVeto": FixedVeto,
