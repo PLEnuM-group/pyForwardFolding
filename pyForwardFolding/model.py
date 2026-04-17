@@ -149,10 +149,6 @@ class Model:
                     f"Baseline weight '{baseline_weight}' not found in input variables"
                 )
 
- 
-            # Accumulate the result into the output
-            output[component.name] = baseline_weight_value * component.evaluate(input_variables, parameter_values)
-
         return output
 
     def __repr__(self):

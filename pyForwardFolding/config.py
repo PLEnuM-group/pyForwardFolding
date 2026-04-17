@@ -84,15 +84,28 @@ def analysis_from_config(config: Union[str, dict]) -> Analysis:
             (dskey, models[model_name]) for model_name, dskey in dskey_model_name_pairs
         ]
 
+        if "data" in hist_config:
+            data_key=hist_config["data"]
+        else: data_key=None
+
         binned_expectations[hist_config["name"]] = BinnedExpectation(
             name=hist_config["name"],
             dskey_model_pairs=dskey_model_pairs,
+            data_key=data_key,
             binning=binning,
             binned_factors=hist_factors,
             lifetime=lifetime,
         )
 
+        print(binned_expectations)
+        print(data_key)
+
     return Analysis(binned_expectations)
+
+
+
+
+
 
 
 def models_from_config(config: Union[str, dict]) -> Dict[str, Dict[str, Model]]:

@@ -4,7 +4,7 @@ import numpy as np
 from jax import jacfwd, tree_util
 import jax.numpy as jnp
 from .backend import Array
-from .binned_expectation import BinnedExpectation
+from .binned_expectation import BinnedExpectation, BinnedData
 
 
 class Analysis:
@@ -75,6 +75,38 @@ class Analysis:
             output_ssq_dict[comp_name] = hist_ssq
 
         return output_dict, output_ssq_dict
+    
+    def evaluate_data(
+        self,
+        datasets: Dict[str, Dict[str, Union[Array, float]]],
+    ) -> Tuple[Dict[str, Array], Dict[str, Array]]:
+        """
+        Evaluate all expectations in the analysis.
+
+        Args:
+            datasets (Dict[str, Dict[str, Union[Array, float]]]): A dictionary mapping component names to their input variables.
+
+        Returns:
+            Tuple[Dict[str, Array], Dict[str, Array]]: A tuple containing:
+                - A dictionary mapping component names to their evaluation results (histograms).
+        """
+        output_dict = {}
+
+        for comp_name, comp in self.expectations.items():
+            # Evaluate the observed data via BinnedData (data handling moved there)
+            binned_data = BinnedData(
+                name=comp.name,
+                dskey_model_pairs=comp.dskey_model_pairs,
+                binning=comp.binning,
+                data_key=comp.data_key,
+            )
+            hist = binned_data.evaluate_data(datasets)
+
+            # Store results
+            output_dict[comp_name] = hist
+
+
+        return output_dict
 
     def fisher_information(
         self,
