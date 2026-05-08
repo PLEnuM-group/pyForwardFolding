@@ -80,6 +80,7 @@ class Analysis:
         self,
         datasets: Dict[str, Dict[str, Union[np.ndarray, float]]],
         parameter_values: Dict[str, Union[np.ndarray, float]],
+        per_bin=False,
     ) -> jnp.ndarray:
         """
         Calculate the Fisher Information matrix at the given parameter values.
@@ -120,15 +121,22 @@ class Analysis:
             hist = hist.flatten()
             information = [jnp.where(hist == 0, 0.0, g / jnp.sqrt(hist)) for g in flat_grads]
             values = jnp.stack(information)
-            fisher_information = values @ values.T
-            fisher_dict[comp_name] = fisher_information
+            fisher_per_bin = jnp.einsum("pk,qk->kpq", values, values)
 
-        return jnp.sum(jnp.asarray([v for v in fisher_dict.values()]),axis=0)
+            fisher_dict[comp_name] = fisher_per_bin
+            # else:
+            #     fisher_dict[comp_name] = jnp.sum(fisher_per_bin, axis=0)  # [P, P]
+
+        if per_bin:
+            return fisher_dict 
+        else:
+            return {hkey: jnp.sum(fisher_dict[hkey], axis=0) for hkey in fisher_dict.keys()}  # [P, P]
 
     def covariance(
             self,
             datasets: Dict[str, Dict[str, Union[np.ndarray, float]]],
             parameter_values: Dict[str, Union[np.ndarray, float]],
+            per_hist=False,
     ) -> jnp.ndarray:
         """
         Compute the covariance matrix from a Fisher Information Matrix directly calculated
@@ -147,7 +155,12 @@ class Analysis:
             jnp.ndarray: The parameter covariance matrix (shape: [n_params, n_params]).
         """
         fisher_information = self.fisher_information(datasets,parameter_values)
-        cov = self.covariance_from_fisherinformation(fisher_information)
+        fim = jnp.sum(jnp.array([v for v in fisher_information.values()]),axis=0)
+        cov = {"total": self.covariance_from_fisherinformation(fim)}
+        for hkey, fim in fisher_information.items():
+            cov[hkey] = self.covariance_from_fisherinformation(fim)
+
+            
         return cov
 
     def variance(
@@ -171,12 +184,16 @@ class Analysis:
             Dict[str, jnp.ndarray]: A dictionary mapping parameter names to their variances.
         """
         cov = self.covariance(datasets, parameter_values)
-        var = self.variance_from_covariance(cov)
-        keys = parameter_values.keys()
 
-        return {
-            k: v for k, v in zip(keys, var)
-        }
+        keys = parameter_values.keys()
+        variance = {}
+        for key, c in cov.items():
+            vari = self.variance_from_covariance(c)
+            variance[key] = {k: v for k, v in zip(keys, vari)}
+
+
+
+        return variance
 
     @staticmethod
     def covariance_from_fisherinformation(
