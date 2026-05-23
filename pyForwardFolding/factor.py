@@ -761,6 +761,63 @@ class SegmentedPlane(AbstractUnbinnedFactor):
 
 
 
+class GalacticPlaneBox(AbstractUnbinnedFactor):
+    """
+    Box-shaped analytical galactic-plane selector.
+
+    Returns 1.0 for events inside the latitude band |true_lat| <= height
+    (in radians) and 0.0 outside. Pure geometry — no fittable parameters
+    and no longitude dependence (the box is a band in latitude only,
+    spanning all longitudes).
+
+    Intended to be multiplied with a spectral factor (e.g. `PowerLawFlux`
+    or a spline) and a `FluxNorm` to model a galactic-plane flux
+    component. Edges are hard; this introduces a non-differentiability in
+    `true_lat` but `true_lat` is per-event input data, not a fit
+    parameter, so gradient-based fits are unaffected.
+
+    No parameters required by this factor.
+    Variables required by this factor are: `true_lat` (in radians).
+
+    Args:
+        name (str): Identifier for the factor.
+        height (float): Latitude half-width of the box in radians. Events
+            with |true_lat| <= height return 1.0, others return 0.0.
+        param_mapping (dict): Dictionary mapping factor parameter names
+            to names in the parameter dictionary.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        height: float,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+        self.height = height
+        self.factor_parameters: List[str] = []
+        self.req_vars: List[str] = ["true_lat"]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "GalacticPlaneBox":
+        param_mapping = config.get("param_mapping", None)
+        return GalacticPlaneBox(
+            name=config["name"],
+            height=config["height"],
+            param_mapping=param_mapping,
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, Union[Array, float]],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values = get_required_variable_values(self, input_variables)
+        true_lat = input_values["true_lat"]
+        in_plane = backend.abs(true_lat) <= self.height
+        return backend.where(in_plane, 1.0, 0.0)
+
+
 class SnowstormGauss(AbstractUnbinnedFactor):
     """
     Factor that implements a Gaussian reweighting scheme for systematic uncertainty modeling.
@@ -1480,6 +1537,7 @@ FACTORSTR_CLASS_MAPPING = {
     "FlavorRatio": FlavorRatio,
     "FluxNorm": FluxNorm,
     "SegmentedPlane": SegmentedPlane,
+    "GalacticPlaneBox": GalacticPlaneBox,
     "SnowstormGauss": SnowstormGauss,
     "DeltaGamma": DeltaGamma,
     "GradientReweight": GradientReweight,
