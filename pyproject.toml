@@ -38,6 +38,8 @@ checks = [
 ]
 docs = [
   "mkdocs-material>=9,<10",
+  "mkdocstrings[python]>=0.24",
+  "mkdocs-jupyter>=0.24",
 ]
 tests = [
   "coverage[toml]>=7,<8",

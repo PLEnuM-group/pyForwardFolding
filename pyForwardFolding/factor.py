@@ -10,22 +10,64 @@ class AbstractFactor:
     Abstract class representing a per-event factor.
     """
 
-    def __init__(self, name: str, param_mapping: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        name: str,
+        param_mapping: Optional[Dict[str, Union[str, float]]] = None,
+    ):
         """
         Initialize the factor with a name and parameter mapping.
+
         Args:
             name (str): Identifier for the factor.
-            param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
+            param_mapping (dict, optional): Dictionary keyed by internal
+                factor parameter name. Each value can be either:
+
+                - a ``str``: rename — the parameter is exposed under this
+                  name in the global parameter dictionary.
+                - a numeric (``int`` or ``float``, but not ``bool``): fix —
+                  the parameter is held at this constant value and is *not*
+                  exposed in the analysis.
+
+                Internal parameters not listed in the mapping keep their
+                original name and remain exposed. If ``None`` (default), all
+                factor parameters are exposed under their original names.
         """
         self.name = name
         self.param_mapping = param_mapping
         self.factor_parameters: List[str] = []
 
+        # Split param_mapping entries into renames (str values) and fixed
+        # constants (numeric values). Bools are explicitly excluded so that
+        # accidental boolean entries are caught rather than silently
+        # interpreted as 0/1 constants.
+        if param_mapping is None:
+            self._renames: Dict[str, str] = {}
+            self.fixed_factor_params: Dict[str, float] = {}
+        else:
+            self._renames = {
+                k: v for k, v in param_mapping.items() if isinstance(v, str)
+            }
+            self.fixed_factor_params = {
+                k: float(v)
+                for k, v in param_mapping.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            }
+
     @property
     def parameter_mapping(self) -> Dict[str, str]:
-        if self.param_mapping is None:
-            return {par: par for par in self.factor_parameters}
-        return self.param_mapping
+        """
+        Mapping of *fittable* factor parameters (internal name -> exposed
+        name). Parameters that were fixed via ``param_mapping`` (numeric
+        value) are excluded; parameters not listed in the mapping default to
+        identity (internal name == exposed name).
+        """
+        result: Dict[str, str] = {}
+        for par in self.factor_parameters:
+            if par in self.fixed_factor_params:
+                continue  # fixed -> not exposed
+            result[par] = self._renames.get(par, par)
+        return result
 
     @property
     def exposed_parameters(self) -> List[str]:
@@ -301,6 +343,8 @@ def get_parameter_values(
         factor_var_name: parameter_dict[par_name]
         for factor_var_name, par_name in par_mapping.items()
     }
+    # Inject factor-level fixed parameters so evaluate() still sees them.
+    parameter_values.update(factor.fixed_factor_params)
     return parameter_values
 
 
@@ -429,6 +473,162 @@ class BrokenPowerLawFlux(AbstractUnbinnedFactor):
         )
 
         return flux * self.baseline_norm
+
+class GaisserZenithFactor(AbstractUnbinnedFactor):
+    """
+    Factor that applies the zenith-dependent piece of the Gaisser atmospheric
+    neutrino flux parametrization, *excluding* the E^{-gamma} baseline shape.
+
+    Intended to be multiplied with a separate spectral factor (e.g. a spline
+    or `PowerLawFlux`) and a `FluxNorm` factor. This factor only contributes
+    the pi/K bracket
+
+        B(E, theta) = 1 / (1 + a * E * cos(theta*) / eps_pi)
+                    + R_K * 1 / (1 + b * E * cos(theta*) / eps_K)
+
+    normalized so that B(pivot_energy, vertical) = 1. Here `cos(theta*)` is
+    the Chirkin (2004) Earth-curvature-corrected effective cosine (if
+    `earth_curvature=True`), or plain `cos(theta)` otherwise. The formula
+    is applied to the *atmospheric* zenith angle, which is symmetric in
+    up/down, so the absolute value of `cos(true_zenith)` is used
+    internally.
+
+    Physical effect: the bracket is ~constant at low energies and adds an
+    additional power of E that depends on `cos(theta*)` above the critical
+    energies. Horizontal showers transition later, producing a relatively
+    harder spectrum at the horizon (the "secant-theta" enhancement).
+
+    Parameters required by this factor are: `kaon_pion_ratio`.
+    Variables required by this factor are: `true_energy` and `true_zenith`
+    (the zenith angle in radians).
+
+    Args:
+        name (str): Identifier for the factor.
+        pivot_energy (float): Reference energy [GeV] at which the bracket is
+            normalized to 1 (at vertical incidence). This factor evaluates
+            to 1 at (pivot_energy, vertical).
+        epsilon_pi (float): Pion critical energy [GeV]. Default 115 GeV.
+        epsilon_K (float): Kaon critical energy [GeV]. Default 850 GeV.
+        a_pi (float): Pion interaction coefficient inside the pion term.
+            Default 1.0.
+        b_K (float): Kaon interaction coefficient inside the kaon term.
+            Default 1.0.
+        earth_curvature (bool): If True, apply the Chirkin (2004) effective
+            cosine to prevent the unphysical sec(theta) divergence at the
+            horizon. Default True.
+        param_mapping (dict): Dictionary mapping factor parameter names to
+            names in the parameter dictionary.
+    """
+
+    # Chirkin (2004) parametrization constants for cos(theta*)
+    _CHIRKIN_P1 = 0.102573
+    _CHIRKIN_P2 = -0.068287
+    _CHIRKIN_P3 = 0.958633
+    _CHIRKIN_P4 = 0.0407253
+    _CHIRKIN_P5 = 0.817285
+
+    def __init__(
+        self,
+        name: str,
+        pivot_energy: float,
+        epsilon_pi: float = 115.0,
+        epsilon_K: float = 850.0,
+        a_pi: float = 1.0,
+        b_K: float = 1.0,
+        earth_curvature: bool = True,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+
+        self.pivot_energy = pivot_energy
+        self.epsilon_pi = epsilon_pi
+        self.epsilon_K = epsilon_K
+        self.a_pi = a_pi
+        self.b_K = b_K
+        self.earth_curvature = earth_curvature
+
+        self.factor_parameters: List[str] = ["kaon_pion_ratio"]
+        self.req_vars: List[str] = ["true_energy", "true_zenith"]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "GaisserZenithFactor":
+        param_mapping = config.get("param_mapping", None)
+        return GaisserZenithFactor(
+            name=config["name"],
+            pivot_energy=config["pivot_energy"],
+            epsilon_pi=config.get("epsilon_pi", 115.0),
+            epsilon_K=config.get("epsilon_K", 850.0),
+            a_pi=config.get("a_pi", 1.0),
+            b_K=config.get("b_K", 1.0),
+            earth_curvature=config.get("earth_curvature", True),
+            param_mapping=param_mapping,
+        )
+
+    def _chirkin_cos_theta_star(self, cos_theta: Any) -> Any:
+        """
+        Chirkin (2004) Earth-curvature corrected effective cosine.
+
+        At vertical (cos_theta = 1) returns ~0.991; at horizon (cos_theta = 0)
+        returns ~0.105, replacing the unphysical sec(theta) divergence of the
+        flat-Earth approximation with a finite slant depth.
+        """
+        p1, p2, p3 = self._CHIRKIN_P1, self._CHIRKIN_P2, self._CHIRKIN_P3
+        p4, p5 = self._CHIRKIN_P4, self._CHIRKIN_P5
+        return backend.sqrt(
+            cos_theta * cos_theta
+            + p1 * p1
+            + p2 * backend.power(cos_theta, p3)
+            + p4 * backend.power(cos_theta, p5)
+        )
+
+    def _effective_cos_theta(self, cos_theta: Any) -> Any:
+        if self.earth_curvature:
+            return self._chirkin_cos_theta_star(cos_theta)
+        return cos_theta
+
+    def _bracket(
+        self, energy: Any, cos_theta_star: Any, kaon_pion_ratio: Any
+    ) -> Any:
+        """Gaisser bracket [1/(1+a*E*cos*/eps_pi) + R*1/(1+b*E*cos*/eps_K)]."""
+        pi_term = 1.0 / (
+            1.0 + self.a_pi * energy * cos_theta_star / self.epsilon_pi
+        )
+        K_term = 1.0 / (
+            1.0 + self.b_K * energy * cos_theta_star / self.epsilon_K
+        )
+        return pi_term + kaon_pion_ratio * K_term
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, Union[Array, float]],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+
+        true_energy = input_values["true_energy"]
+        true_zenith = input_values["true_zenith"]
+        kaon_pion_ratio = exposed_values["kaon_pion_ratio"]
+
+        # Atmospheric flux is symmetric in up/down: use |cos(theta)| so the
+        # parametrization (defined on downgoing) also applies to upgoing
+        # events, which are produced in the opposite-hemisphere atmosphere.
+        cos_theta = backend.abs(backend.cos(true_zenith))
+        cos_theta_star = self._effective_cos_theta(cos_theta)
+
+        # Per-event bracket
+        bracket = self._bracket(true_energy, cos_theta_star, kaon_pion_ratio)
+
+        # Normalize at (pivot_energy, vertical) using the same earth_curvature
+        # setting, so the factor evaluates to 1 at the reference point
+        # regardless of toggle.
+        cos_theta_star_ref = self._effective_cos_theta(1.0)
+        bracket_ref = self._bracket(
+            self.pivot_energy, cos_theta_star_ref, kaon_pion_ratio
+        )
+
+        return bracket / bracket_ref
+
 
 class FlavorRatio(AbstractUnbinnedFactor):
     """
@@ -603,6 +803,63 @@ class SegmentedPlane(AbstractUnbinnedFactor):
         weight = backend.where(in_plane, weight, 0.0)
         return weight
 
+
+
+class GalacticPlaneBox(AbstractUnbinnedFactor):
+    """
+    Box-shaped analytical galactic-plane selector.
+
+    Returns 1.0 for events inside the latitude band |true_lat| <= height
+    (in radians) and 0.0 outside. Pure geometry — no fittable parameters
+    and no longitude dependence (the box is a band in latitude only,
+    spanning all longitudes).
+
+    Intended to be multiplied with a spectral factor (e.g. `PowerLawFlux`
+    or a spline) and a `FluxNorm` to model a galactic-plane flux
+    component. Edges are hard; this introduces a non-differentiability in
+    `true_lat` but `true_lat` is per-event input data, not a fit
+    parameter, so gradient-based fits are unaffected.
+
+    No parameters required by this factor.
+    Variables required by this factor are: `true_lat` (in radians).
+
+    Args:
+        name (str): Identifier for the factor.
+        height (float): Latitude half-width of the box in radians. Events
+            with |true_lat| <= height return 1.0, others return 0.0.
+        param_mapping (dict): Dictionary mapping factor parameter names
+            to names in the parameter dictionary.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        height: float,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+        self.height = height
+        self.factor_parameters: List[str] = []
+        self.req_vars: List[str] = ["true_lat"]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "GalacticPlaneBox":
+        param_mapping = config.get("param_mapping", None)
+        return GalacticPlaneBox(
+            name=config["name"],
+            height=config["height"],
+            param_mapping=param_mapping,
+        )
+
+    def evaluate(
+        self,
+        input_variables: Dict[str, Union[Array, float]],
+        parameter_values: Dict[str, float],
+    ) -> Array:
+        input_values = get_required_variable_values(self, input_variables)
+        true_lat = input_values["true_lat"]
+        in_plane = backend.abs(true_lat) <= self.height
+        return backend.where(in_plane, 1.0, 0.0)
 
 
 class SnowstormGauss(AbstractUnbinnedFactor):
@@ -1320,9 +1577,11 @@ class ScaledTemplate(AbstractBinnedFactor):
 FACTORSTR_CLASS_MAPPING = {
     "PowerLawFlux": PowerLawFlux,
     "BrokenPowerLawFlux": BrokenPowerLawFlux,
+    "GaisserZenithFactor": GaisserZenithFactor,
     "FlavorRatio": FlavorRatio,
     "FluxNorm": FluxNorm,
     "SegmentedPlane": SegmentedPlane,
+    "GalacticPlaneBox": GalacticPlaneBox,
     "SnowstormGauss": SnowstormGauss,
     "DeltaGamma": DeltaGamma,
     "GradientReweight": GradientReweight,
