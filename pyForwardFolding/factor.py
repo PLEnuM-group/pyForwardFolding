@@ -10,22 +10,64 @@ class AbstractFactor:
     Abstract class representing a per-event factor.
     """
 
-    def __init__(self, name: str, param_mapping: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        name: str,
+        param_mapping: Optional[Dict[str, Union[str, float]]] = None,
+    ):
         """
         Initialize the factor with a name and parameter mapping.
+
         Args:
             name (str): Identifier for the factor.
-            param_mapping (dict): Dictionary mapping factor parameter names to names in the parameter dictionary.
+            param_mapping (dict, optional): Dictionary keyed by internal
+                factor parameter name. Each value can be either:
+
+                - a ``str``: rename — the parameter is exposed under this
+                  name in the global parameter dictionary.
+                - a numeric (``int`` or ``float``, but not ``bool``): fix —
+                  the parameter is held at this constant value and is *not*
+                  exposed in the analysis.
+
+                Internal parameters not listed in the mapping keep their
+                original name and remain exposed. If ``None`` (default), all
+                factor parameters are exposed under their original names.
         """
         self.name = name
         self.param_mapping = param_mapping
         self.factor_parameters: List[str] = []
 
+        # Split param_mapping entries into renames (str values) and fixed
+        # constants (numeric values). Bools are explicitly excluded so that
+        # accidental boolean entries are caught rather than silently
+        # interpreted as 0/1 constants.
+        if param_mapping is None:
+            self._renames: Dict[str, str] = {}
+            self.fixed_factor_params: Dict[str, float] = {}
+        else:
+            self._renames = {
+                k: v for k, v in param_mapping.items() if isinstance(v, str)
+            }
+            self.fixed_factor_params = {
+                k: float(v)
+                for k, v in param_mapping.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            }
+
     @property
     def parameter_mapping(self) -> Dict[str, str]:
-        if self.param_mapping is None:
-            return {par: par for par in self.factor_parameters}
-        return self.param_mapping
+        """
+        Mapping of *fittable* factor parameters (internal name -> exposed
+        name). Parameters that were fixed via ``param_mapping`` (numeric
+        value) are excluded; parameters not listed in the mapping default to
+        identity (internal name == exposed name).
+        """
+        result: Dict[str, str] = {}
+        for par in self.factor_parameters:
+            if par in self.fixed_factor_params:
+                continue  # fixed -> not exposed
+            result[par] = self._renames.get(par, par)
+        return result
 
     @property
     def exposed_parameters(self) -> List[str]:
@@ -301,6 +343,8 @@ def get_parameter_values(
         factor_var_name: parameter_dict[par_name]
         for factor_var_name, par_name in par_mapping.items()
     }
+    # Inject factor-level fixed parameters so evaluate() still sees them.
+    parameter_values.update(factor.fixed_factor_params)
     return parameter_values
 
 
