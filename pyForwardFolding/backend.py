@@ -378,6 +378,17 @@ class Backend(Protocol):
         """
         ...
 
+    def inv(self, x:ArrayLike) -> Array:
+        """
+        Compute inverse of a matrix.
+
+        Args:
+            x (ArrayLike): Input matrix.
+
+        Returns:
+            Array: Inverse of x.
+        """
+
 
 class JAXBackend:
     """
@@ -761,6 +772,9 @@ class JAXBackend:
         """
         x = jnp.asarray(x)
         return jnp.max(x)
+
+    def inv(self, x: ArrayLike) -> JAXArray:
+        return jnp.linalg.inv(x)
 
 
 # Type aliases for convenience
