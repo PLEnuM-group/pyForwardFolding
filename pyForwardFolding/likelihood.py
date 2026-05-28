@@ -38,6 +38,44 @@ class AbstractPrior:
         """
         return set(self.prior_seeds.keys())
 
+class GaussianMultiVariatePrior(AbstractPrior):
+    def __init__(
+            self,
+            param_names: List[str],
+            mean: Array,
+            cov: Array,
+            prior_seeds: Dict[str, float],
+            prior_bounds: Optional[Dict[str, Tuple[float, float]]] = None,
+    ):
+        """
+        A multivarian Gaussian prior for parameters. 
+        Parameters can be correlated.
+        Note, this prior is not normalized, it only provides a log likelihood contribution.
+
+        Args:
+            param_names: Ordered list of parameter names included in this prior.
+            mean: Mean vector, shape (n,).
+            cov: Covariance matrix, shape (n, n). Must be positive semi-definite.
+            prior_seeds: Initial values for all parameters.
+            prior_bounds: Optional bounds for the parameters.
+
+        """
+
+        assert len(param_names) == len(mean) == cov.shape[0] == cov.shape[1], \
+            f"Dimension mismatch: {len(param_names)} params, mean shape {len(mean)}, cov shape {cov.shape}"
+
+        super().__init__(prior_seeds, prior_bounds)
+        self.param_names = param_names
+        self.mean = backend.array(mean)
+        self.cov = backend.array(cov)
+        # Pre-compute the inverse once — cheaper than re-inverting every call
+        self.cov_inv = backend.inv(self.cov)
+
+    def log_pdf(self, parameter_values: Dict[str, float]) -> float:
+        x = backend.array([parameter_values[p] for p in self.param_names])
+        delta = x - self.mean
+        return -0.5 * delta @ self.cov_inv @ delta
+
 
 class GaussianUnivariatePrior(AbstractPrior):
     def __init__(

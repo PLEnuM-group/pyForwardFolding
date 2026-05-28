@@ -205,7 +205,7 @@ def params_from_config(config: Union[str, dict]) -> Tuple[Dict[str, float],list]
         model_parameters: dict containing model parameters extracted from the config
         priors: list of prior objects extracted from the config
     """
-    from .likelihood import UniformPrior, GaussianUnivariatePrior
+    from .likelihood import UniformPrior, GaussianUnivariatePrior, GaussianMultiVariatePrior
 
     conf = _load_config(config)
 
@@ -214,6 +214,7 @@ def params_from_config(config: Union[str, dict]) -> Tuple[Dict[str, float],list]
         for k, v in conf["prior_bounds"].items()
     }
     prior_seeds = conf["prior_seeds"]
+    priors = [UniformPrior(prior_seeds, prior_bounds)]
 
     if "prior_bounds_gauss" in conf and conf["prior_bounds_gauss"]:
         prior_bounds_gauss = {
@@ -225,15 +226,25 @@ def params_from_config(config: Union[str, dict]) -> Tuple[Dict[str, float],list]
             for k, v in conf["prior_params_gauss"].items()
         }
         prior_seeds_gauss = conf["prior_seeds_gauss"]
-        priors= [
-            UniformPrior(prior_seeds, prior_bounds),
-            GaussianUnivariatePrior(prior_params_gauss, prior_seeds_gauss, prior_bounds_gauss)
-        ]
-    else:
-        priors = [
-            UniformPrior(prior_seeds, prior_bounds)
-        ]
+        priors.append(GaussianUnivariatePrior(prior_params_gauss, prior_seeds_gauss, prior_bounds_gauss))
+
+    if "prior_multivariate" in conf and conf["prior_multivariate"]:
+        mv = conf["prior_multivariate"]
+        mv_bounds = (
+            {k: (float(v[0]), float(v[1])) for k, v in mv["bounds"].items()}
+            if "bounds" in mv
+            else None
+        )
+        priors.append(
+            GaussianMultiVariatePrior(
+                param_names=mv["param_names"],
+                mean=backend.array(mv["mean"]),
+                cov=backend.array(mv["cov"]),
+                prior_seeds=mv["seeds"],
+                prior_bounds=mv_bounds,
+            )
+        )
 
     model_parameters = conf["model_parameters"]
-    
+
     return model_parameters, priors
