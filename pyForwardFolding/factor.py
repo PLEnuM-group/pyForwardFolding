@@ -360,6 +360,160 @@ class PowerLawFlux(AbstractUnbinnedFactor):
             * backend.power(true_energy / self.pivot_energy, -spectral_index)
         )
 
+class SignalMixture(AbstractUnbinnedFactor):
+    def __init__(
+        self,
+        name: str,
+        weight_keys: List[str],
+        model_names: List[str],
+        reference_model: str,                 # now required, no default
+        normalize: bool = True,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+
+        assert len(weight_keys) >= 2, "SignalMixture requires at least 2 models."
+        assert len(model_names) == len(weight_keys), "model_names must match length of weight_keys."
+        assert reference_model in model_names, f"reference_model '{reference_model}' not in model_names."
+
+        self.model_names    = model_names
+        self.reference_model = reference_model
+        self.normalize      = normalize
+
+        # Reorder so reference is always last internally
+        ref_idx         = model_names.index(reference_model)
+        ordered_names   = [n for n in model_names if n != reference_model] + [reference_model]
+        ordered_keys    = [weight_keys[model_names.index(n)] for n in ordered_names]
+
+        self.ordered_names  = ordered_names
+        self.n_models       = len(ordered_names)
+        self.req_vars       = ordered_keys
+        self.weight_keys    = ordered_keys
+
+        # log_phi + (N-1) thetas; reference gets no theta
+        self.factor_parameters = ["tot_phi"] + [
+            f"theta_{label}" for label in ordered_names[:-1]
+        ]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "SignalMixture":
+        return cls(
+            name=config["name"],
+            weight_keys=config["weight_keys"],
+            model_names=config["model_names"],
+            reference_model=config["reference_model"],   # required, will KeyError if missing
+            normalize=config.get("normalize", True),
+            param_mapping=config.get("param_mapping", None),
+        )
+
+    def _softmax(self, thetas):
+        logits    = thetas + [backend.array(0.0)]
+        exp_logits = [backend.exp(t) for t in logits]
+        total     = sum(exp_logits)
+        return [e / total for e in exp_logits]
+
+    def evaluate(self, input_variables, parameter_values):
+        input_values   = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+
+        tot_phi = exposed_values["tot_phi"]
+        thetas  = [exposed_values[f"theta_{label}"] for label in self.ordered_names[:-1]]
+        r       = self._softmax(thetas)
+
+        weights = [input_values[k] for k in self.weight_keys]
+        if self.normalize:
+            N_ref   = backend.sum(weights[-1])   # reference is always last
+            weights = [w/backend.sum(w) * N_ref for w in weights]
+
+        safe_ref = backend.where(
+            weights[-1] > 0,
+            weights[-1],
+            backend.zeros(weights[-1].shape)+1.
+        )
+        mixed = sum(r[i] * weights[i] for i in range(self.n_models))
+        return backend.where(
+            weights[-1] > 0,
+            tot_phi * mixed / safe_ref,
+            backend.zeros(mixed.shape)
+        )
+
+class SignalMixtureKappa(AbstractUnbinnedFactor):
+    def __init__(
+        self,
+        name: str,
+        weight_keys: List[str],
+        model_names: List[str],
+        reference_model: str,
+        normalize: bool = True,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, param_mapping)
+
+        assert len(weight_keys) >= 2, "SignalMixture requires at least 2 models."
+        assert len(model_names) == len(weight_keys), "model_names must match length of weight_keys."
+        assert reference_model in model_names, f"reference_model '{reference_model}' not in model_names."
+
+        self.model_names     = model_names
+        self.reference_model = reference_model
+        self.normalize       = normalize
+
+        ref_idx       = model_names.index(reference_model)
+        ordered_names = [n for n in model_names if n != reference_model] + [reference_model]
+        ordered_keys  = [weight_keys[model_names.index(n)] for n in ordered_names]
+
+        self.ordered_names = ordered_names
+        self.n_models      = len(ordered_names)
+        self.req_vars      = ordered_keys
+        self.weight_keys   = ordered_keys
+
+        # tot_phi + (N-1) kappas; kappa_i = N_i / N_ref directly
+        self.factor_parameters = ["tot_phi"] + [
+            f"kappa_{label}" for label in ordered_names[:-1]
+        ]
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "SignalMixture":
+        return cls(
+            name=config["name"],
+            weight_keys=config["weight_keys"],
+            model_names=config["model_names"],
+            reference_model=config["reference_model"],
+            normalize=config.get("normalize", True),
+            param_mapping=config.get("param_mapping", None),
+        )
+
+    def _ratio_mix(self, kappas):
+        """Direct ratio parametrization: kappa_i = N_i / N_ref."""
+        denom = sum(kappas) + backend.array(1.0)
+        r_non_ref = [k / denom for k in kappas]
+        r_ref     = backend.array(1.0) / denom
+        return r_non_ref + [r_ref]
+
+    def evaluate(self, input_variables, parameter_values):
+        input_values   = get_required_variable_values(self, input_variables)
+        exposed_values = get_parameter_values(self, parameter_values)
+
+        tot_phi = exposed_values["tot_phi"]
+        kappas  = [exposed_values[f"kappa_{label}"] for label in self.ordered_names[:-1]]
+        r       = self._ratio_mix(kappas)
+
+        weights = [input_values[k] for k in self.weight_keys]
+        if self.normalize:
+            N_ref   = backend.sum(weights[-1])
+            weights = [w / backend.sum(w) * N_ref for w in weights]
+
+        safe_ref = backend.where(
+            weights[-1] > 0,
+            weights[-1],
+            backend.zeros(weights[-1].shape) + 1.0
+        )
+        mixed = sum(r[i] * weights[i] for i in range(self.n_models))
+        return backend.where(
+            weights[-1] > 0,
+            tot_phi * mixed / safe_ref,
+            backend.zeros(mixed.shape)
+        )
+
 class BrokenPowerLawFlux(AbstractUnbinnedFactor):
     """
     Factor that applies a broken power law flux model.
@@ -787,23 +941,31 @@ class GradientReweight(AbstractUnbinnedFactor):
         self,
         name: str,
         gradient_key_mapping: Dict[str, str],
-        baseline_weight: str,
+        baseline_weight: Optional[str] = None,
+        base_value_dict: Optional[Dict[str, float]] = {},
         param_mapping: Optional[Dict[str, str]] = None,
     ):
         super().__init__(name, param_mapping)
         self.baseline_weight = baseline_weight
         self.grad_key_map = gradient_key_mapping
-        self.req_vars = list(self.grad_key_map.values()) + [self.baseline_weight]
+        self.base_value_dict = base_value_dict
+        if baseline_weight is not None:
+            self.req_vars = list(self.grad_key_map.values()) + [self.baseline_weight]
+        else:
+            self.req_vars = list(self.grad_key_map.values())
         self.factor_parameters = list(self.grad_key_map.keys())
 
     @classmethod
     def construct_from(cls, config: Dict[str, Any]) -> "GradientReweight":
         param_mapping = config.get("param_mapping", None)
+        baseline_weight = config.get("baseline_weight", None)
+        base_value_dict = config.get("base_values", {})
         return GradientReweight(
             name=config["name"],
             gradient_key_mapping=config["gradient_key_mapping"],
-            baseline_weight=config["baseline_weight"],
+            baseline_weight=baseline_weight,
             param_mapping=param_mapping,
+            base_value_dict=base_value_dict,
         )
 
     def evaluate(
@@ -813,12 +975,13 @@ class GradientReweight(AbstractUnbinnedFactor):
     ) -> Array:
         input_values = get_required_variable_values(self, input_variables)
         exposed_values = get_parameter_values(self, parameter_values)
-        baseline = input_values[self.baseline_weight]
+        baseline = input_values.get(self.baseline_weight, 1.)
         reweight = backend.array(baseline)
         for par in self.factor_parameters:
             par_gradient = input_variables[self.grad_key_map[par]]
             par_value = exposed_values[par]
-            reweight += par_value * par_gradient
+            base_value = self.base_values.get(par, 0)
+            reweight += (base_value - par_value) * par_gradient
         return reweight / baseline
 
 
@@ -1320,6 +1483,8 @@ class ScaledTemplate(AbstractBinnedFactor):
 FACTORSTR_CLASS_MAPPING = {
     "PowerLawFlux": PowerLawFlux,
     "BrokenPowerLawFlux": BrokenPowerLawFlux,
+    "SignalMixture": SignalMixture,
+    "SignalMixtureKappa": SignalMixtureKappa,
     "FlavorRatio": FlavorRatio,
     "FluxNorm": FluxNorm,
     "SegmentedPlane": SegmentedPlane,
