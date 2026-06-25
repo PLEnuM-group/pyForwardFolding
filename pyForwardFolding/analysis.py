@@ -279,23 +279,22 @@ class Analysis:
         return variance
 
     @staticmethod
-    def covariance_from_fisherinformation(
-        fisher_information: jnp.ndarray
-    ) -> jnp.ndarray:
-        """
-        Compute the covariance matrix of the parameters by inverting the Fisher Information matrix.
+    def covariance_from_fisherinformation(fisher_information: jnp.ndarray) -> jnp.ndarray:
+        fim_np = np.array(fisher_information)
+        n = fim_np.shape[0]
 
-        This matrix represents the best-case lower bound on the covariance of any unbiased
-        estimator of the parameters (the Cramér–Rao bound).
+        # Parameters are "active" for this histogram if they have any non-zero FIM entry
+        active = np.any(fim_np != 0, axis=1)  # shape [n], symmetric so row check suffices
+        active_idx = np.where(active)[0]
 
-        Args:
-            fisher_information (jnp.ndarray): The Fisher Information matrix
+        cov = np.full((n, n), np.inf)  # default: inf variance for inactive params
 
-        Returns:
-            jnp.ndarray: The parameter covariance matrix (shape: [n_params, n_params]).
-        """
-        cov = jnp.linalg.inv(fisher_information)
-        return cov
+        if len(active_idx) > 0:
+            sub_fim = fim_np[np.ix_(active_idx, active_idx)]
+            sub_cov = np.linalg.inv(sub_fim)
+            cov[np.ix_(active_idx, active_idx)] = sub_cov
+
+        return jnp.array(cov)
 
     @staticmethod
     def variance_from_covariance(
