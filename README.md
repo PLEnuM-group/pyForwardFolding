@@ -9,12 +9,11 @@
 
 ## Quickstart
 
-[Install Hatch](https://hatch.pypa.io/latest/install/), then install the project:
+Clone the repo and install it
 
 ```sh
 ❯ cd path/to/repo
-# Try running the tests
-❯ hatch run coverage run
+❯ pip install .
 ```
 
 ## Model Structure

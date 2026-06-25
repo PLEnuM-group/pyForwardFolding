@@ -1,0 +1,132 @@
+site_name: pyForwardFolding
+site_description: A JAX-based forward-folding fitting framework for binned likelihood analyses.
+site_url: https://chrhck.github.io/pyForwardFolding/
+repo_url: https://github.com/chrhck/pyForwardFolding
+repo_name: chrhck/pyForwardFolding
+edit_uri: edit/develop/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  custom_dir: overrides
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  # The following two plugins are optional; install with
+  #   pip install mkdocstrings[python] mkdocs-jupyter
+  # to enable them. If they are not installed, comment the
+  # corresponding entry out before running `mkdocs build`.
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_root_heading: true
+            show_source: true
+            show_signature_annotations: true
+            separate_signature: true
+            docstring_style: google
+            members_order: source
+            merge_init_into_class: true
+            heading_level: 3
+  - mkdocs-jupyter:
+      include_source: true
+      execute: false
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - getting-started/installation.md
+      - getting-started/quickstart.md
+  - Concepts:
+      - concepts/overview.md
+      - concepts/factors.md
+      - concepts/binning.md
+      - concepts/likelihood.md
+      - concepts/fitting.md
+  - Configuration:
+      - configuration/overview.md
+      - configuration/factors.md
+      - configuration/components-and-models.md
+      - configuration/histograms.md
+      - configuration/parameters-and-priors.md
+      - configuration/datasets.md
+  - Reference:
+      - reference/factors.md
+      - reference/binnings.md
+      - reference/likelihoods.md
+      - API:
+          - reference/api/analysis.md
+          - reference/api/binned_expectation.md
+          - reference/api/binning.md
+          - reference/api/config.md
+          - reference/api/factor.md
+          - reference/api/likelihood.md
+          - reference/api/minimizer.md
+          - reference/api/model.md
+          - reference/api/model_component.md
+          - reference/api/statistics.md
+          - reference/api/backend.md
+  - How-to guides:
+      - how-to/build-from-config.md
+      - how-to/run-a-fit.md
+      - how-to/custom-factor.md
+      - how-to/multi-detector.md
+      - how-to/hypothesis-test.md
+  - Examples:
+      - examples/toy_example_w_config.ipynb

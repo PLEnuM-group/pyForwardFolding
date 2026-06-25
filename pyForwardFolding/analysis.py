@@ -3,7 +3,7 @@ from typing import Dict, Set, Tuple, Union
 import numpy as np
 from jax import jacfwd, tree_util
 import jax.numpy as jnp
-from .backend import Array
+from .backend import Array, backend
 from .binned_expectation import BinnedExpectation
 
 
@@ -75,6 +75,89 @@ class Analysis:
             output_ssq_dict[comp_name] = hist_ssq
 
         return output_dict, output_ssq_dict
+
+    def evaluate_per_component(
+        self,
+        datasets: Dict[str, Dict[str, Union[Array, float]]],
+        parameter_values: Dict[str, float],
+    ) -> Tuple[Dict[str, Dict[str, Array]], Dict[str, Dict[str, Array]]]:
+        """
+        Evaluate all expectations in the analysis, broken down per model component
+        (e.g. astro, atmo).
+
+        Args:
+            datasets (Dict[str, Dict[str, Union[Array, float]]]): A dictionary mapping
+                dataset names to their input variables.
+            parameter_values (Dict[str, float]): Variables exposed by previously
+                evaluated expectations.
+
+        Returns:
+            Tuple of two dicts shaped
+                {expectation_name: {model_component_name: histogram}}
+            — the first holds histograms, the second the squared-weights histograms.
+        """
+        output_dict: Dict[str, Dict[str, Array]] = {}
+        output_ssq_dict: Dict[str, Dict[str, Array]] = {}
+
+        for exp_name, exp in self.expectations.items():
+            per_comp_hist: Dict[str, Array] = {}
+            per_comp_hist_ssq: Dict[str, Array] = {}
+
+            for model_dskey, model in exp.dskey_model_pairs:
+                if model_dskey not in datasets:
+                    raise ValueError(
+                        f"Dataset '{model_dskey}' not found in provided datasets."
+                    )
+                input_variables = datasets[model_dskey]
+
+                # Per-ModelComponent weights (astro, atmo, ...)
+                per_comp_weights = model.evaluate_per_component(
+                    input_variables, parameter_values
+                )
+
+                # Binning variables only need to be extracted once per dataset
+                binning_variables = tuple(
+                    backend.asarray(input_variables[var])
+                    for var in exp.binning.required_variables
+                )
+
+                for model_comp_name, weights in per_comp_weights.items():
+                    weight_sq = backend.power(weights, 2)
+
+                    hist_add = (
+                        exp.binning.build_histogram(
+                            model_dskey, weights, binning_variables
+                        )
+                        * exp.lifetime
+                    )
+                    hist_ssq_add = (
+                        exp.binning.build_histogram(
+                            model_dskey, weight_sq, binning_variables
+                        )
+                        * exp.lifetime ** 2
+                    )
+
+                    if model_comp_name in per_comp_hist:
+                        per_comp_hist[model_comp_name] = per_comp_hist[model_comp_name] + hist_add
+                        per_comp_hist_ssq[model_comp_name] = per_comp_hist_ssq[model_comp_name] + hist_ssq_add
+                    else:
+                        per_comp_hist[model_comp_name] = hist_add
+                        per_comp_hist_ssq[model_comp_name] = hist_ssq_add
+
+            # Clamp once, after accumulating across datasets
+            for model_comp_name in per_comp_hist:
+                per_comp_hist[model_comp_name] = backend.clip(
+                    per_comp_hist[model_comp_name], 0, float("inf")
+                )
+                per_comp_hist_ssq[model_comp_name] = backend.clip(
+                    per_comp_hist_ssq[model_comp_name], 0, float("inf")
+                )
+
+            output_dict[exp_name] = per_comp_hist
+            output_ssq_dict[exp_name] = per_comp_hist_ssq
+
+        return output_dict, output_ssq_dict
+ 
 
     def fisher_information(
         self,
