@@ -472,7 +472,7 @@ class SignalMixtureKappa(AbstractUnbinnedFactor):
         ]
 
     @classmethod
-    def construct_from(cls, config: Dict[str, Any]) -> "SignalMixture":
+    def construct_from(cls, config: Dict[str, Any]) -> "SignalMixtureKappa":
         return cls(
             name=config["name"],
             weight_keys=config["weight_keys"],
