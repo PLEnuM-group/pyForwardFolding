@@ -1053,6 +1053,8 @@ class GradientReweight(AbstractUnbinnedFactor):
         self.req_vars = list(self.grad_key_map.values()) + [self.baseline_weight]
         self.factor_parameters = list(self.grad_key_map.keys())
 
+        self._eps = 1e-36
+
     @classmethod
     def construct_from(cls, config: Dict[str, Any]) -> "GradientReweight":
         param_mapping = config.get("param_mapping", None)
@@ -1070,13 +1072,17 @@ class GradientReweight(AbstractUnbinnedFactor):
     ) -> Array:
         input_values = get_required_variable_values(self, input_variables)
         exposed_values = get_parameter_values(self, parameter_values)
-        baseline = input_values[self.baseline_weight]
+        baseline = input_values.get(self.baseline_weight, 1.)
         reweight = backend.array(baseline)
         for par in self.factor_parameters:
             par_gradient = input_variables[self.grad_key_map[par]]
             par_value = exposed_values[par]
-            reweight += par_value * par_gradient
-        return reweight / baseline
+            base_value = self.base_values.get(par, 0)
+            reweight += (base_value - par_value) * par_gradient
+
+        safe_baseline = backend.where(baseline > self._eps, baseline, backend.zeros(baseline.shape) + 1)
+        result = reweight / safe_baseline
+        return backend.where(baseline > self._eps, result, backend.zeros(result.shape))
 
 
 class ClassifierGradientReweight(AbstractUnbinnedFactor):
