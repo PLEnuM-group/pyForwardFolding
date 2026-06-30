@@ -45,16 +45,28 @@ class AbstractBinning:
             return RelaxedBinning.construct_from(config)
         elif binning_type == "RectangularBinning":
             return RectangularBinning.construct_from(config)
+        elif binning_type == "RectangularBinningExtended":
+            return RectangularBinningExtended.construct_from(config)
         else:
             raise ValueError(f"Unknown binning type: {binning_type}")
 
     @property
     def hist_dims(self) -> Tuple[int, ...]:
         return self._hist_dims
+    
+    @property
+    def hist_dims_effective(self) -> Tuple[int, ...]:
+        # Effective hist_dims bins used by build_histogram
+        # True hist_dims can be different due to ND->(N+1)D binning
+        return self._hist_dims_effective
 
     @property
     def nbins(self) -> int:
         return reduce(mul, self.hist_dims, 1)
+    
+    @property
+    def nbins_effective(self) -> int:
+        return reduce(mul, self.hist_dims_effective, 1)
 
     def build_histogram(
         self,
@@ -119,6 +131,7 @@ class RelaxedBinning(AbstractBinning):
         # Extract scalar value from array for type safety
         self.bin_width: float = float(bin_width[0])
         self._hist_dims = tuple(len(edges) - 1 for edges in self.bin_edges)
+        self._hist_dims_effective = self._hist_dims
         raise NotImplementedError("RelaxedBinning is currently not implemented")
 
     @classmethod
@@ -191,6 +204,7 @@ class RectangularBinning(AbstractBinning):
         self.bin_variables = bin_variables
         self.bin_edges = tuple(backend.array(edges) for edges in bin_edges)
         self._hist_dims = tuple(len(edges) - 1 for edges in self.bin_edges)
+        self._hist_dims_effective = tuple(len(edges) - 1 for edges in self.bin_edges)
 
     @classmethod
     def construct_from(cls, config: Dict[str, Any]) -> "RectangularBinning":
@@ -271,17 +285,17 @@ class RectangularBinning(AbstractBinning):
         self.calculate_bin_indices(ds_key, converted_binning_variables)
 
         indices_flat = backend.ravel_multi_index(
-            tuple(self.bin_indices_dict[ds_key]), self.hist_dims
+            tuple(self.bin_indices_dict[ds_key]), self.hist_dims_effective
         )
 
         # Set weight of masked samples to 0
         weights_masked = backend.set_index(weights_array, self.mask_dict[ds_key], 0)
 
         output = backend.bincount(
-            indices_flat, weights=weights_masked, length=self.nbins
+            indices_flat, weights=weights_masked, length=self.nbins_effective
         )
 
-        return output.reshape(self.hist_dims)
+        return output.reshape(self.hist_dims_effective)
 
 
 class RectangularBinning2DTo3D(RectangularBinning):
@@ -343,3 +357,87 @@ class RectangularBinning2DTo3D(RectangularBinning):
         )
 
         return histogram_3d
+
+class RectangularBinningExtended(RectangularBinning):
+    """
+    Rectangular binning strategy for converting ND data to (N+1)D histograms.
+
+    Args:
+        bin_variables (Tuple[str]): The variables used for the ND histogram.
+        bin_edges (List[Array]): The edges of the bins for each variable.
+        bin_edges_n1d (int): Bin edges for the N+1 dimension.
+        bin_indices_dict (Optional[Dict[str, List[Tuple[int]]]]): Precomputed bin indices for the ND histogram
+        mask_dict (Dict[str, Any], optional): Masks for the binning variables.
+    """
+
+    # TODO: fix dimension / binning. this is currently just the binning for the 2D histogram
+
+    def __init__(
+        self,
+        bin_variables: Tuple[str, ...],
+        bin_edges: Tuple[Array, ...],
+        bin_edges_n1d: Array,
+        bin_indices_dict: Optional[Dict[str, List[Tuple[int]]]] = None,
+        mask_dict: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(bin_variables, bin_edges, bin_indices_dict, mask_dict)
+
+        self.bin_edges_n1d = bin_edges_n1d
+        self._hist_dims = tuple(len(edges) - 1  for edges in [*self.bin_edges, self.bin_edges_n1d])
+
+    @classmethod
+    def construct_from(cls, config: Dict[str, Any]) -> "RectangularBinningExtended":
+        bin_vars_edges = config["bin_vars_edges"]
+        bin_vars_edges_n1d = config["bin_vars_edges_extend"]
+        if len(bin_vars_edges) < 1:
+            raise ValueError("At least one variable and its edges must be provided.")
+        bin_edges = []
+        bin_variables = []
+        for var, bin_type, edges in bin_vars_edges:
+            bin_variables.append(var)
+            if bin_type == "linear":
+                bin_edges.append(backend.linspace(*edges))
+            elif bin_type == "array":
+                bin_edges.append(backend.array(edges))
+            else:
+                raise ValueError(f"Unknown binning type: {bin_type}")
+        for var, bin_type, edges in bin_vars_edges_n1d:
+            if bin_type == "linear":
+                bin_edges_n1d = backend.linspace(*edges)
+            elif bin_type == "array":
+                bin_edges_n1d = backend.array(edges)
+            else:
+                raise ValueError(f"Unknown binning type: {bin_type}")
+
+        return cls(tuple(bin_variables), tuple(bin_edges),bin_edges_n1d)
+
+    def build_histogram(
+        self,
+        ds_key: str,
+        weights: Array,
+        binning_variables: Tuple[Array, ...],
+    ) -> Array:
+        """
+        Build a (N+1)D histogram from ND data by adding a extra dimension of size 1.
+
+        Args:
+            ds_key (str): The dataset key.
+            weights (Array): Weights for the histogram.
+            binning_variables (Tuple[Array, ...]): The variables used for binning.
+
+        Returns:
+            Array: A (N+1)D histogram with the extra dimension of size 1.
+        """
+        histogram_nd = super().build_histogram(ds_key, weights, binning_variables)
+
+        histogram_nd /= (
+            self.bin_edges_n1d.shape[0] - 1
+        )  # Normalize by the number of bins in the third dimension
+
+        histogram_n1d = backend.repeat(
+            histogram_nd[..., None],
+            repeats=self.bin_edges_n1d.shape[0] - 1,
+            axis=-1,
+            total_repeat_length=self.bin_edges_n1d.shape[0] - 1,
+        )
+        return histogram_n1d
