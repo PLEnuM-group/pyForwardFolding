@@ -1045,6 +1045,7 @@ class GradientReweight(AbstractUnbinnedFactor):
         name: str,
         gradient_key_mapping: Dict[str, str],
         baseline_weight: str,
+        base_value_dict: Optional[Dict[str, float]] = {},
         param_mapping: Optional[Dict[str, str]] = None,
     ):
         super().__init__(name, param_mapping)
@@ -1052,16 +1053,19 @@ class GradientReweight(AbstractUnbinnedFactor):
         self.grad_key_map = gradient_key_mapping
         self.req_vars = list(self.grad_key_map.values()) + [self.baseline_weight]
         self.factor_parameters = list(self.grad_key_map.keys())
+        self.base_value_dict = base_value_dict
 
         self._eps = 1e-36
 
     @classmethod
     def construct_from(cls, config: Dict[str, Any]) -> "GradientReweight":
         param_mapping = config.get("param_mapping", None)
+        base_value_dict = config.get("base_values", {})
         return GradientReweight(
             name=config["name"],
             gradient_key_mapping=config["gradient_key_mapping"],
             baseline_weight=config["baseline_weight"],
+            base_value_dict=base_value_dict,
             param_mapping=param_mapping,
         )
 
@@ -1077,7 +1081,7 @@ class GradientReweight(AbstractUnbinnedFactor):
         for par in self.factor_parameters:
             par_gradient = input_variables[self.grad_key_map[par]]
             par_value = exposed_values[par]
-            base_value = self.base_values.get(par, 0)
+            base_value = self.base_value_dict.get(par, 0)
             reweight += (base_value - par_value) * par_gradient
 
         safe_baseline = backend.where(baseline > self._eps, baseline, backend.zeros(baseline.shape) + 1)
