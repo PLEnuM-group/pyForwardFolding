@@ -1661,6 +1661,124 @@ class ScaledTemplate(AbstractBinnedFactor):
         ), template_fluct
 
 
+class BinnedSignalMixture(AbstractBinnedFactor):
+    """
+    Binned signal mixture factor using pre-computed per-model histograms.
+
+    Implements the same ratio parametrisation as ``SignalMixture`` but operates
+    on pre-histogrammed templates loaded from a pickle file rather than
+    per-event weights.
+
+    The pickle file must be a dict mapping model name → histogram array.  Each
+    array is reshaped to ``binning.hist_dims`` internally.
+
+    Parameters: ``tot_phi``, and ``kappa_{label}`` for every non-reference model.
+
+    Args:
+        name (str): Identifier for the factor.
+        binning (AbstractBinning): Binning for the factor.
+        template_files (Dict[str, str]): Mapping of model name to pickle file path.
+            Each file must follow the ``ScaledTemplate`` format:
+            ``{"template": array}`` with an optional ``"template_fluctuation"`` key.
+        reference_model (str): Name of the reference model.
+        normalize (bool): If True, rescale each template so its sum equals the
+            reference template sum before mixing.  Default True.
+        param_mapping (dict, optional): Parameter name remapping.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        binning: AbstractBinning,
+        template_files: Dict[str, str],
+        reference_model: str,
+        normalize: bool = True,
+        param_mapping: Optional[Dict[str, str]] = None,
+    ):
+        super().__init__(name, binning, param_mapping)
+
+        model_names = list(template_files.keys())
+        assert len(model_names) >= 2, "BinnedSignalMixture requires at least 2 models."
+        assert reference_model in model_names, (
+            f"reference_model '{reference_model}' not in template_files."
+        )
+
+        self.templates = {}
+        for model_name, path in template_files.items():
+            with open(path, "rb") as f:
+                self.templates[model_name] = pickle.load(f)
+
+        self.model_names = model_names
+        self.reference_model = reference_model
+        self.normalize = normalize
+
+        # Non-reference models first, reference last — same ordering as SignalMixture.
+        self.ordered_names = [n for n in model_names if n != reference_model] + [reference_model]
+
+        self.factor_parameters = ["tot_phi"] + [
+            f"kappa_{label}" for label in self.ordered_names[:-1]
+        ]
+
+    @classmethod
+    def construct_from(
+        cls, config: Dict[str, Any], binning: AbstractBinning
+    ) -> "BinnedSignalMixture":
+        return cls(
+            name=config["name"],
+            binning=binning,
+            template_files=config["template_files"],
+            reference_model=config["reference_model"],
+            normalize=config.get("normalize", True),
+            param_mapping=config.get("param_mapping", None),
+        )
+
+    def _ratio_mix(self, kappas: List[Any]) -> List[Any]:
+        """Ratio parametrisation: kappa_i = N_i / N_ref, fractions sum to 1."""
+        denom = sum(kappas) + backend.array(1.0)
+        return [k / denom for k in kappas] + [backend.array(1.0) / denom]
+
+    def evaluate(
+        self, input_variables, parameter_values: Dict[str, float]
+    ) -> Tuple[Array, Optional[Array]]:
+        exposed_values = get_parameter_values(self, parameter_values)
+
+        tot_phi = exposed_values["tot_phi"]
+        kappas = [exposed_values[f"kappa_{label}"] for label in self.ordered_names[:-1]]
+        r = self._ratio_mix(kappas)
+
+        hists = [
+            backend.asarray(self.templates[name]["template"]).reshape(self.binning.hist_dims)
+            for name in self.ordered_names
+        ]
+
+        flucts = [
+            backend.asarray(self.templates[name]["template_fluctuation"]).reshape(self.binning.hist_dims)
+            if "template_fluctuation" in self.templates[name] else None
+            for name in self.ordered_names
+        ]
+
+        if self.normalize:
+            ref_sum = backend.sum(hists[-1])
+            scale_factors = [
+                ref_sum / backend.sum(h) if backend.sum(h) > 0 else 1.0
+                for h in hists
+            ]
+            hists  = [h * s for h, s in zip(hists, scale_factors)]
+            flucts = [f * s if f is not None else None for f, s in zip(flucts, scale_factors)]
+
+        mixed = sum(r[i] * hists[i] for i in range(len(self.ordered_names)))
+
+        if all(f is not None for f in flucts):
+            mixed_fluct = sum(
+                (r[i] * tot_phi * flucts[i]) ** 2
+                for i in range(len(self.ordered_names))
+            )
+        else:
+            mixed_fluct = None
+
+        return tot_phi * mixed, mixed_fluct
+
+
 FACTORSTR_CLASS_MAPPING = {
     "PowerLawFlux": PowerLawFlux,
     "BrokenPowerLawFlux": BrokenPowerLawFlux,
@@ -1681,5 +1799,6 @@ FACTORSTR_CLASS_MAPPING = {
     "SoftCut": SoftCut,
     "SnowStormGradient": SnowStormGradient,
     "ScaledTemplate": ScaledTemplate,
+    "BinnedSignalMixture": BinnedSignalMixture,
     "PerBinPolynomial": PerBinPolynomial,
 }
